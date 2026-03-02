@@ -1,0 +1,61 @@
+.pio
+.vscode/.browse.c_cpp.db*
+.vscode/c_cpp_properties.json
+.vscode/launch.json
+.vscode/ipch
+components/
+
+
+# Node.js
+node_modules/
+package-lock.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Java
+*.class
+*.jar
+*.war
+target/
+
+# Ruby
+*.gem
+*.rbc
+.bundle/
+log/
+tmp/
+vendor/
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.sln.ide
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+ehthumbs.db
+*.lnk
+
+# IDEs
+.vscode/
+.idea/
+*.iml
+*.sublime-workspace
+*.sublime-project
+
+# Logs
+*.log
+
+# OS generated files
+*.swp
+*~

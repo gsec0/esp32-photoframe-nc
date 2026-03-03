@@ -4,6 +4,7 @@
 .vscode/launch.json
 .vscode/ipch
 components/
+src/wifi_credentials.h
 
 
 # Node.js

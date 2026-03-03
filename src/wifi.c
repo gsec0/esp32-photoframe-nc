@@ -1,13 +1,13 @@
 #include "wifi.h"
+#include "wifi_credentials.h"
+
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "nvs_flash.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 
 static const char *TAG = "WIFI";
-
-#define WIFI_SSID "YOURSSID"
-#define WIFI_PASS "YOURPASS"
 
 static bool connected = false;
 
@@ -55,9 +55,10 @@ bool wifi_connect(uint32_t timeout_ms)
 
     while(!connected) {
         if((esp_timer_get_time() / 1000) - start > timeout_ms) {
+            ESP_LOGW(TAG, "WiFi connection timeout");
             return false;
         }
-        vTaskDelay(200 / portTICK_PERIOD_MS);
+        vTaskDelay(pdMS_TO_TICKS(200));
     }
 
     ESP_LOGI(TAG, "WiFi connected");

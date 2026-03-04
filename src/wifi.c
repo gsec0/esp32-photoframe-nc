@@ -61,6 +61,18 @@ bool wifi_connect(uint32_t timeout_ms)
         vTaskDelay(pdMS_TO_TICKS(200));
     }
 
-    ESP_LOGI(TAG, "WiFi connected");
+    // Log SSID and IP
+    esp_netif_ip_info_t ip_info;
+    esp_netif_get_ip_info(esp_netif_get_handle_from_ifkey("WIFI_STA_DEF"), &ip_info);
+    ESP_LOGI(TAG, "WiFi Connected: %s " IPSTR, WIFI_SSID, IP2STR(&ip_info.ip));
     return true;
+}
+
+void wifi_disconnect(void)
+{
+    ESP_LOGI("WIFI", "Disconnecting WiFi");
+
+    esp_wifi_disconnect();   // leave AP
+    esp_wifi_stop();         // stop driver
+    esp_wifi_deinit();       // free resources
 }

@@ -9,7 +9,7 @@
 #include "wifi.h"
 #include "driver/gpio.h"
 #include "pins_S3_PHOTOPAINTER.h"
-// #include "sync.h"
+#include "sync.h"
 // #include "display.h"
 
 static const char *TAG = "MAIN";
@@ -107,10 +107,10 @@ void app_main(void)
 
                 gpio_set_level(PIN_LED_GREEN, 0);
 
-                // if (!sync_with_remote(current_image_index)) {
-                //     ESP_LOGW(TAG, "Sync failed -> continuing anyway");
-                // }
-                vTaskDelay(pdMS_TO_TICKS(5000)); // testing
+                if (!sync_with_remote()) {
+                    ESP_LOGW(TAG, "Sync failed -> continuing anyway");
+                }
+                // vTaskDelay(pdMS_TO_TICKS(5000)); // testing
 
                 gpio_set_level(PIN_LED_GREEN, 1);
 

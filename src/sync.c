@@ -80,7 +80,11 @@ static bool sdcard_init(void)
     ESP_LOGI(TAG, "SD card mounted");
 
     if (mkdir("/sdcard/pictures", 0775) != 0) {
-        ESP_LOGW(TAG, "Directory may already exist");
+        if (errno == EEXIST) {
+            ESP_LOGI(TAG, "Directory already exists");
+        } else {
+            ESP_LOGW(TAG, "mkdir failed: %d", errno);
+        }
     }
 
     return true;
@@ -103,6 +107,8 @@ static bool fetch_xml(char *buffer, size_t max_len)
         .timeout_ms = 10000,
         .transport_type = HTTP_TRANSPORT_OVER_SSL,
         .skip_cert_common_name_check = true,
+        .crt_bundle_attach = NULL,
+        .use_global_ca_store = false,
     };
 
     esp_http_client_handle_t client = esp_http_client_init(&config);

@@ -85,6 +85,7 @@ void app_main(void)
     xEventGroupClearBits(heartbeat_event_group, STOP_HEARTBEAT_BIT);
     xTaskCreate(heartbeat_task, "heartbeat", 2048, NULL, 5, NULL);
 
+    wifi_init_once();
     state = STATE_WIFI_CONNECT;
 
     while (1)
@@ -110,7 +111,7 @@ void app_main(void)
                 if (!sync_with_remote()) {
                     ESP_LOGW(TAG, "Sync failed -> continuing anyway");
                 }
-                // vTaskDelay(pdMS_TO_TICKS(5000)); // testing
+                vTaskDelay(pdMS_TO_TICKS(5000)); // testing
 
                 gpio_set_level(PIN_LED_GREEN, 1);
 

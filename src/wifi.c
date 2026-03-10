@@ -6,10 +6,14 @@
 #include "nvs_flash.h"
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_netif.h"
 
 static const char *TAG = "WIFI";
 
 static bool connected = false;
+static bool wifi_initialized = false;
+
+static esp_netif_t *sta_netif = NULL;
 
 static void wifi_event_handler(void* arg, esp_event_base_t event_base,
                                int32_t event_id, void* event_data)
@@ -26,13 +30,19 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
     }
 }
 
-bool wifi_connect(uint32_t timeout_ms)
+void wifi_init_once(void)
 {
+    if (wifi_initialized) {
+        return;
+    }
+
+    ESP_LOGI(TAG, "Initializing WiFi stack");
+
     nvs_flash_init();
     esp_netif_init();
     esp_event_loop_create_default();
 
-    esp_netif_create_default_wifi_sta();
+    sta_netif = esp_netif_create_default_wifi_sta();
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     esp_wifi_init(&cfg);
@@ -49,6 +59,16 @@ bool wifi_connect(uint32_t timeout_ms)
 
     esp_wifi_set_mode(WIFI_MODE_STA);
     esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
+
+    wifi_initialized = true;
+}
+
+bool wifi_connect(uint32_t timeout_ms)
+{
+    wifi_init_once();
+
+    connected = false;
+
     esp_wifi_start();
 
     uint32_t start = esp_timer_get_time() / 1000;
@@ -61,18 +81,18 @@ bool wifi_connect(uint32_t timeout_ms)
         vTaskDelay(pdMS_TO_TICKS(200));
     }
 
-    // Log SSID and IP
     esp_netif_ip_info_t ip_info;
-    esp_netif_get_ip_info(esp_netif_get_handle_from_ifkey("WIFI_STA_DEF"), &ip_info);
+    esp_netif_get_ip_info(sta_netif, &ip_info);
+
     ESP_LOGI(TAG, "WiFi Connected: %s " IPSTR, WIFI_SSID, IP2STR(&ip_info.ip));
+
     return true;
 }
 
 void wifi_disconnect(void)
 {
-    ESP_LOGI("WIFI", "Disconnecting WiFi");
+    ESP_LOGI(TAG, "Disconnecting WiFi");
 
-    esp_wifi_disconnect();   // leave AP
-    esp_wifi_stop();         // stop driver
-    esp_wifi_deinit();       // free resources
+    esp_wifi_disconnect();
+    esp_wifi_stop();
 }

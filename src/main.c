@@ -3,8 +3,31 @@
 QueueHandle_t download_queue = NULL;
 EventGroupHandle_t system_events = NULL;
 
-void sync_task(void *arg);
+static void system_init(void);
+static void start_tasks(void);
 void download_task(void *arg);
+void hardware_init(void);
+static void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, void *event_data);
+
+void app_main(void)
+{
+    ESP_LOGI("MAIN", "Firmware boot");
+
+    system_init();
+
+    hardware_init();
+
+    start_tasks();
+
+    while (true) {
+
+        ESP_LOGI("MAIN",
+                 "Free heap: %d",
+                 esp_get_free_heap_size());
+
+        vTaskDelay(pdMS_TO_TICKS(10000));
+    }
+}
 
 static void system_init(void)
 {
@@ -43,6 +66,27 @@ static void start_tasks(void)
     );
 }
 
+bool download_file_stub_create_empty_bmp(const char *remote_filename)
+{
+    char bmp_name[MAX_FILENAME];
+    to_bmp_name(bmp_name, remote_filename);
+
+    char path[256];
+    snprintf(path, sizeof(path), "%s%s", STORAGE_PATH, bmp_name);
+
+    FILE *f = fopen(path, "wb");
+    if (!f) {
+        ESP_LOGE("DOWNLOAD_STUB", "Failed to open %s for write: %s", path, strerror(errno));
+        return false;
+    }
+
+    // Write a tiny BMP header / zero bytes or leave empty — just create file
+    fclose(f);
+
+    ESP_LOGI("DOWNLOAD_STUB", "Created stub file %s", path);
+    return true;
+}
+
 void download_task(void *arg)
 {
     ESP_LOGI("DOWNLOAD", "Download task started");
@@ -50,17 +94,25 @@ void download_task(void *arg)
     download_job_t job;
 
     while (true) {
+        if (xQueueReceive(download_queue, &job, portMAX_DELAY) == pdTRUE) {
 
-        if (xQueueReceive(
-                download_queue,
-                &job,
-                portMAX_DELAY)) {
+            ESP_LOGI("DOWNLOAD", "Starting download job: %s", job.filename);
 
-            ESP_LOGI("DOWNLOAD",
-                "Download job: %s",
-                job.filename);
+            // Call the actual downloader. We'll implement a proper streaming downloader next.
+            // For now use a safe stub that writes an empty .bmp file to SD so you can test sync.
+            extern bool download_file_stub_create_empty_bmp(const char *remote_filename); // declare below or in header
+            bool ok = download_file_stub_create_empty_bmp(job.filename);
 
-            // future download logic
+            if (!ok) {
+                ESP_LOGW("DOWNLOAD", "download failed for %s", job.filename);
+                // Optionally re-enqueue with backoff, or record failure for retry
+            } else {
+                ESP_LOGI("DOWNLOAD", "download succeeded: %s", job.filename);
+            }
+
+            ESP_LOGI("DOWNLOAD", "Free heap: %u ; download task high water: %u",
+                    esp_get_free_heap_size(),
+                    uxTaskGetStackHighWaterMark(NULL));
         }
     }
 }
@@ -142,7 +194,7 @@ static void wifi_init(void)
     ESP_LOGI("WIFI", "WiFi started");
 }
 
-void sd_init(void)
+static void sd_init(void)
 {
     ESP_LOGI("SD", "Initializing SD card");
 
@@ -176,7 +228,7 @@ void sd_init(void)
 
     esp_err_t ret = esp_vfs_fat_sdspi_mount(
         "/sdcard",
-        &host,          // <‑‑ missing in your code
+        &host,
         &slot_config,
         &mount_config,
         &card);
@@ -188,186 +240,23 @@ void sd_init(void)
 
     sdmmc_card_print_info(stdout, card);
 
+    if (mkdir("/sdcard/pictures", 0775) != 0) {
+        if (errno == EEXIST) {
+            ESP_LOGI("SD", "Directory /sdcard/pictures already exists");
+        } else {
+            ESP_LOGW("SD", "mkdir /sdcard/pictures failed: %s", strerror(errno));
+        }
+    } else {
+        ESP_LOGI("SD", "Created /sdcard/pictures");
+    }
+
     xEventGroupSetBits(system_events, SD_READY_BIT);
 
     ESP_LOGI("SD", "SD card mounted");
 }
 
-static void hardware_init(void)
+void hardware_init(void)
 {
     wifi_init();
     sd_init();
-}
-
-static void extract_filename(const char *href)
-{
-    const char *p = strrchr(href, '/');
-    if (!p) return;
-
-    p++;
-
-    if (*p == '\0') return;
-
-    if (remote_file_count >= MAX_REMOTE_FILES)
-        return;
-
-    strncpy(remote_files[remote_file_count], p, MAX_FILENAME - 1);
-    remote_files[remote_file_count][MAX_FILENAME-1] = 0;
-
-    ESP_LOGI("SYNC", "Remote file: %s", remote_files[remote_file_count]);
-
-    remote_file_count++;
-}
-
-static void parse_xml_chunk(char *data, int len)
-{
-    // Prepend any overlap from previous chunk
-    char temp_buf[768];  // data + overlap
-    int total_len = overlap_len;
-    
-    if (total_len + len > sizeof(temp_buf) - 1) {
-        total_len = 0;  // Overflow, reset
-        overlap_len = 0;
-    }
-    
-    if (total_len > 0) {
-        memcpy(temp_buf, overlap_buf, overlap_len);
-    }
-    memcpy(temp_buf + total_len, data, len);
-    total_len += len;
-    temp_buf[total_len] = 0;
-    
-    char *p = temp_buf;
-    while ((p = strstr(p, "<d:href>"))) {
-        p += 8;
-        char *end = strstr(p, "</d:href>");
-        if (!end) {
-            // Incomplete tag, save overlap
-            overlap_len = total_len - (p - temp_buf);
-            memcpy(overlap_buf, p, overlap_len);
-            return;
-        }
-        
-        char href[256];
-        int l = end - p;
-        if (l >= sizeof(href)) l = sizeof(href) - 1;
-        
-        memcpy(href, p, l);
-        href[l] = 0;
-        
-        extract_filename(href);
-        // remote_file_count++;  // Track count here
-        
-        p = end + 9;
-    }
-    
-    // No pending overlap
-    overlap_len = 0;
-}
-
-static esp_err_t http_event_handler(esp_http_client_event_t *evt)
-{
-    switch (evt->event_id) {
-        case HTTP_EVENT_ERROR:
-            ESP_LOGE("HTTP", "HTTP_ERROR");
-            break;
-        case HTTP_EVENT_ON_CONNECTED:
-            ESP_LOGI("HTTP", "Connected");
-            break;
-        case HTTP_EVENT_ON_DATA:
-            if (evt->data && evt->data_len) {
-                parse_xml_chunk((char*)evt->data, evt->data_len);
-            }
-            break;
-        default:
-            break;
-    }
-    return ESP_OK;
-}
-
-static bool fetch_remote_file_list(void)
-{
-    remote_file_count = 0;
-
-    esp_http_client_config_t config = {
-        .url = WEBDAV_URL,
-        .method = HTTP_METHOD_PROPFIND,
-        .event_handler = http_event_handler,
-        .timeout_ms = 10000,
-    };
-
-    esp_http_client_handle_t client =
-        esp_http_client_init(&config);
-
-    esp_http_client_set_header(client, "Depth", "1");
-    esp_http_client_set_header(client, "Content-Type", "application/xml");
-
-    esp_http_client_set_post_field(
-        client,
-        propfind_body,
-        strlen(propfind_body));
-
-    esp_err_t err = esp_http_client_perform(client);
-
-    if (err != ESP_OK) {
-
-        ESP_LOGE("SYNC", "HTTP request failed");
-
-        esp_http_client_cleanup(client);
-        return false;
-    }
-
-    int status = esp_http_client_get_status_code(client);
-
-    ESP_LOGI("SYNC", "HTTP status: %d", status);
-
-    esp_http_client_cleanup(client);
-
-    ESP_LOGI("SYNC", "Parsed %d remote files", remote_file_count);
-
-    return true;
-}
-
-void sync_task(void *arg)
-{
-    ESP_LOGI("SYNC", "Sync task started");
-
-    xEventGroupWaitBits(
-        system_events,
-        WIFI_CONNECTED_BIT | SD_READY_BIT,
-        pdFALSE,
-        pdTRUE,
-        portMAX_DELAY
-    );
-
-    ESP_LOGI("SYNC", "System ready");
-
-    while (true) {
-
-        ESP_LOGI("SYNC", "Fetching remote file list");
-
-        fetch_remote_file_list();
-
-        vTaskDelay(pdMS_TO_TICKS(30000));
-    }
-}
-
-void app_main(void)
-{
-    ESP_LOGI("MAIN", "Firmware boot");
-
-    system_init();
-
-    hardware_init();
-
-    start_tasks();
-
-    while (true) {
-
-        ESP_LOGI("MAIN",
-                 "Free heap: %d",
-                 esp_get_free_heap_size());
-
-        vTaskDelay(pdMS_TO_TICKS(10000));
-    }
 }

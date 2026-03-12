@@ -30,24 +30,6 @@ extern EventGroupHandle_t system_events;
 #define WIFI_SSID "Namai_2G"
 #define WIFI_PASS "Germuska18"
 
-// Sync
-#define MAX_REMOTE_FILES 256
-#define MAX_FILENAME     128
-
-static char remote_files[MAX_REMOTE_FILES][MAX_FILENAME];
-static int remote_file_count = 0;
-
-// Small 512-byte ring buffer for tag overlap across chunks
-static char overlap_buf[512];
-static int overlap_len = 0;
-
-#include "esp_http_client.h"
-
-#define WEBDAV_URL "https://192.168.1.63:7070/remote.php/dav/photospublic/yJ4UmAGcRkslSl2XoQ0MR2mt3n8PacX3/"
-static const char *propfind_body =
-"<?xml version=\"1.0\"?>"
-"<d:propfind xmlns:d=\"DAV:\">"
-"<d:prop>"
-"<d:resourcetype/>"
-"</d:prop>"
-"</d:propfind>";
+#include "sync.h"
+#include "errno.h"
+#include <sys/stat.h>
